@@ -1,0 +1,30 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    # Runs every 6 hours (UTC)
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Run only in the fork, not in the original repository.
+    if: github.repository == 'SriGanesh-123/Reverse_Engeneering_Anything'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Sync main with upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORK_REPO: ${{ github.repository }}
+        run: |
+          gh repo sync "$FORK_REPO" \
+            --source morluto/rea \
+            --branch main
