@@ -20,11 +20,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Sync main with upstream
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORK_REPO: ${{ github.repository }}
+      - name: Check out fork main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure Git identity
         run: |
-          gh repo sync "$FORK_REPO" \
-            --source morluto/rea \
-            --branch main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream changes
+        run: |
+          git remote add upstream https://github.com/morluto/rea.git
+          git fetch upstream main
+
+      - name: Merge upstream into fork
+        run: git merge --no-edit upstream/main
+
+      - name: Push updated fork
+        run: git push origin HEAD:main
