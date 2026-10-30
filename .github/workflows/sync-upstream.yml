@@ -1,13 +1,17 @@
+
 name: Sync Fork with Upstream
 
 on:
   schedule:
     # Runs every 6 hours (UTC)
     - cron: "0 */6 * * *"
+
   workflow_dispatch:
 
+# GITHUB_TOKEN only needs read access.
+# The fine-grained PAT handles the push operation.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: upstream-sync
@@ -20,24 +24,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout your fork using PAT authentication
       - name: Check out fork main
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          persist-credentials: true
 
+      # Step 2: Configure Git identity
       - name: Configure Git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # Step 3: Fetch latest upstream changes
       - name: Fetch upstream changes
         run: |
           git remote add upstream https://github.com/morluto/rea.git
           git fetch upstream main
 
+      # Step 4: Merge upstream changes into your fork
       - name: Merge upstream into fork
-        run: git merge --no-edit upstream/main
+        run: |
+          git merge --no-edit upstream/main
 
+      # Step 5: Push updated code to your fork
       - name: Push updated fork
-        run: git push origin HEAD:main
+        run: |
+          git push origin HEAD:main
