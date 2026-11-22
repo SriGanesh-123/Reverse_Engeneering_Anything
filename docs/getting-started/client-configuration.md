@@ -702,6 +702,8 @@ another definition later reuses the same anchor name.
 
 Hermes personal skills install under the active Hermes home's `skills` directory.
 Setup, doctor and uninstall share REA's sticky-profile resolver.
+If the selected profile's deletion marker cannot be checked, REA reports the
+profile as unresolved. Restore access to the reported path and retry.
 A custom `HERMES_HOME` outside the platform default home
 reads its own `active_profile`. An override physically inside the default home
 uses that default home's sticky selection and profile root together, including
@@ -1191,8 +1193,12 @@ from the filesystem root to the current working directory. It loads
 `opencode.json` and `opencode.jsonc` across those directories first, then the
 files in their `.opencode` directories. When a loaded file uses the native
 `mcp.servers` table, REA applies V2's whole-row replacement rule. If the files
-use only legacy `mcp.NAME` tables, REA uses the legacy merge rules. Doctor
-checks the effective registration and reports its scope. For a project
+use only legacy `mcp.NAME` tables, REA merges server fields across layers. An
+explicit legacy `enabled` value overrides an earlier one. Setup writes a
+native row in the selected upper file whenever a loaded layer uses
+`mcp.servers`. Lower files and peer servers stay intact. A legacy server
+named `servers` that conflicts with the native table requires manual repair.
+Doctor checks the effective registration and reports its scope. For a project
 registration, run provider probes separately with settings you explicitly
 select in the terminal. Plain `rea uninstall` removes user
 registrations. Use `rea uninstall --project DIR` to select a project; REA
@@ -1226,14 +1232,6 @@ Do not put credentials in that command or its arguments. `rea doctor --client gr
 reports this manual step. `rea uninstall` does not remove the account connector.
 
 ## Skill selection and maintenance
-
-OpenCode's selected configuration layers determine the registration dialect.
-If any loaded layer uses native `mcp.servers`, setup writes a native REA entry
-in the selected upper file even when that file is absent or has no MCP table.
-Legacy activation is normalized before layer merging, so an explicit enable
-can override an inherited disable. Lower files and other server entries remain
-unchanged; a legacy server named `servers` that conflicts with the native table
-requires manual repair before setup can write.
 
 With no client selected, the interactive skill choice targets the shared
 `~/.agents/skills` copy. Selecting a client targets its personal destination
