@@ -1,20 +1,17 @@
 import { expect, it } from "vitest";
 import { parseOpenStep } from "plist";
 
-import { plistNestingLimitMessage } from "./apple/plistValue.js";
 import {
   decodeOpenStepPropertyList,
-  OpenStepPropertyListError,
   startsOpenStepPropertyList,
+  type OpenStepPropertyListCode,
 } from "./propertyListOpenStep.js";
 
 it.each([
   "{ numeric = (42, -2.5, 0x10, YES); path = /a/b:c$; }",
-  String.raw`{ escapes = "\n\r\t\0\"\\\q\137\U0041"; }`,
   "{ bytes = (<ffzz0>, <0>, <a b c d>, <>); }",
   '/* header */ ("//text", "/*text*/", /* before */ value, // after\n)',
   "{ first = x second = y; third = (a, b,); }",
-  "{ (one, two) = array; { nested = key; } = object; <01ff> = data; }",
   "{} /* unterminated",
   "() ((((((((((",
 ])("preserves pinned lexical and container values for %s", (text) => {
@@ -32,7 +29,7 @@ const syntaxFailure = (read: () => unknown): Error => {
 };
 
 const containerRefusal = (
-  code: OpenStepPropertyListError["code"],
+  code: OpenStepPropertyListCode,
   position: number,
 ) => ({ code, position });
 
@@ -58,31 +55,43 @@ it.each(containerRefusals)(
   "reports %s before and after a deep suffix",
   (text, diagnosis, deep = diagnosis) => {
     expect(syntaxFailure(() => decodeOpenStepPropertyList(text))).toMatchObject(
-      { _tag: "OpenStepPropertyListError", ...diagnosis },
+      { name: "OpenStepPropertyListError", ...diagnosis },
     );
     expect(
       syntaxFailure(() => decodeOpenStepPropertyList(text + "(".repeat(130))),
-    ).toMatchObject({ _tag: "OpenStepPropertyListError", ...deep });
+    ).toMatchObject({ name: "OpenStepPropertyListError", ...deep });
   },
 );
 
-it.each([
-  '{ key = "unterminated',
-  '{ key = "escape\\',
-  "{ key = <01",
-  "{ { toString = text; } = value; }",
-])(
+it.each(['{ key = "unterminated', '{ key = "escape\\', "{ key = <01"])(
   "keeps the pinned scalar decoder's diagnosis for %s before a deep suffix",
   (prefix) => {
     for (const text of [prefix, prefix + "(".repeat(130)]) {
       const pinned = syntaxFailure(() => parseOpenStep(text));
       const owned = syntaxFailure(() => decodeOpenStepPropertyList(text));
-      expect(owned).not.toBeInstanceOf(OpenStepPropertyListError);
+      expect(owned).not.toHaveProperty("name", "OpenStepPropertyListError");
       expect(owned.constructor).toBe(pinned.constructor);
       expect(owned.message).toBe(pinned.message);
     }
   },
 );
+
+it("preserves compound key coercion and its first failure", () => {
+  expect(
+    decodeOpenStepPropertyList(
+      "{ (one, two) = array; { nested = key; } = object; <01ff> = data; }",
+    ),
+  ).toEqual({
+    "one,two": "array",
+    "[object Object]": "object",
+    "1,255": "data",
+  });
+  for (const suffix of ["", "(".repeat(130)]) {
+    expect(() =>
+      decodeOpenStepPropertyList("{ { toString = text; } = value; }" + suffix),
+    ).toThrow(TypeError);
+  }
+});
 
 it("retains every compound-coerced dictionary key with last assignment winning", () => {
   const value = decodeOpenStepPropertyList(
@@ -106,12 +115,12 @@ it("bounds compound keys and later siblings at their owning parse", () => {
   const deep = "(".repeat(30_000) + "x" + ")".repeat(30_000);
   for (const source of [`((x),${deep})`, `{(key)=${deep};}`, `{${deep}=x;}`])
     expect(() => decodeOpenStepPropertyList(source)).toThrow(
-      plistNestingLimitMessage(),
+      /128 nesting levels/iu,
     );
   // A scalar key identifies its parent's member rather than adding value depth.
   expect(decodeOpenStepPropertyList("{ key = (); }", 1)).toEqual({ key: [] });
   expect(() => decodeOpenStepPropertyList("{ (key) = (); }", 1)).toThrow(
-    plistNestingLimitMessage(1),
+    /1 nesting levels/iu,
   );
 });
 
@@ -120,7 +129,7 @@ it.each([
   ["{ key =", "unexpected_end", 7],
 ] as const)("reports incomplete %s as %s at %s", (text, code, position) => {
   expect(syntaxFailure(() => decodeOpenStepPropertyList(text))).toMatchObject({
-    _tag: "OpenStepPropertyListError",
+    name: "OpenStepPropertyListError",
     code,
     position,
   });
@@ -137,11 +146,6 @@ it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])(
       "hidden = second;\n items = (one, // array" +
       newline +
       "two,); }";
-    expect(
-      decodeOpenStepPropertyList(
-        "{ kept = first; // inline" + newline + "hidden = second;\n }",
-      ),
-    ).toEqual({ kept: "first", hidden: "second" });
     expect(startsOpenStepPropertyList(text)).toBe(true);
     expect(decodeOpenStepPropertyList(text)).toEqual({
       kept: "first",
@@ -160,12 +164,35 @@ it("does not treat nonterminating whitespace or quoted comment text as line ends
   expect(startsOpenStepPropertyList("// comment without a line end")).toBe(
     false,
   );
-  expect(() =>
+  const error = syntaxFailure(() =>
     decodeOpenStepPropertyList("// comment without a line end"),
-  ).toThrow(OpenStepPropertyListError);
-  expect(
-    syntaxFailure(() =>
-      decodeOpenStepPropertyList("// comment without a line end"),
-    ),
-  ).toMatchObject({ code: "unexpected_end" });
+  );
+  expect(error).toMatchObject({
+    name: "OpenStepPropertyListError",
+    code: "unexpected_end",
+  });
 });
+
+it.each([
+  ['{ CFBundleExecutable = "M\\U0061in"; }', { CFBundleExecutable: "Main" }],
+  ['{ CFBundleExecutable = "M\\141in"; }', { CFBundleExecutable: "Main" }],
+  ['{ "CFBundle\\U0045xecutable" = "Main"; }', { CFBundleExecutable: "Main" }],
+  ['{ accent = "\\U00e9"; }', { accent: "é" }],
+  ['{ nextstep = "\\335"; }', { nextstep: "é" }],
+  [
+    String.raw`{ escapes = "\n\r\t\0\"\\\q\137\U0041"; }`,
+    { escapes: '\n\r\t\0"\\q_A' },
+  ],
+  ['{ controls = "\\a\\b\\f\\v"; }', { controls: "\u0007\b\f\v" }],
+  ['{ surrogatePair = "\\Ud83d\\Ude00"; }', { surrogatePair: "😀" }],
+  ['{ loneHighSurrogate = "\\Ud800"; }', { loneHighSurrogate: "\ufffd" }],
+  ['{ loneLowSurrogate = "\\Udc00"; }', { loneLowSurrogate: "\ufffd" }],
+  ['{ octalBoundary376 = "\\376"; }', { octalBoundary376: "\ufffd" }],
+  ['{ octalBoundary377 = "\\377"; }', { octalBoundary377: "\ufffd" }],
+  ['{ octalWrap400 = "\\400"; }', { octalWrap400: "\0" }],
+])(
+  "decodes OpenStep quoted escape sequences in keys and values for %s",
+  (text, expected) => {
+    expect(decodeOpenStepPropertyList(text)).toEqual(expected);
+  },
+);

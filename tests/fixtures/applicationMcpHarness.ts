@@ -11,7 +11,10 @@ import { createServer } from "../../src/server/createServer.js";
 import {
   createTestMcp,
   type McpClientIdentity,
+  type TestMcp,
 } from "../support/mcp/mcpFixture.js";
+import type { TestDelivery } from "../support/completeEvidenceByDefault.js";
+import { testDeliveryEnvironment } from "../support/completeEvidenceByDefault.js";
 
 /** Owned MCP SDK session shared by application workflow scenarios. */
 export interface ApplicationMcpHarness {
@@ -26,7 +29,10 @@ export async function createApplicationMcpHarness(
     readonly session?: BinarySession;
     readonly serverOptions?: Parameters<typeof createServer>[1];
     readonly clientIdentity?: McpClientIdentity;
+    readonly schemaValidator?: Parameters<TestMcp["connect"]>[2];
     readonly registerCleanup?: (close: ApplicationMcpHarness["close"]) => void;
+    /** "budgeted" leaves an omitted detail to the agent result budget. */
+    readonly testDelivery?: TestDelivery;
   } = {},
 ): Promise<ApplicationMcpHarness> {
   const session =
@@ -63,10 +69,13 @@ export async function createApplicationMcpHarness(
       { kind: "session", session },
       {
         ...options.serverOptions,
-        environment: {
-          ...INLINE_EVIDENCE_MCP_ENVIRONMENT,
-          ...(options.serverOptions?.environment ?? process.env),
-        },
+        environment: testDeliveryEnvironment(
+          {
+            ...INLINE_EVIDENCE_MCP_ENVIRONMENT,
+            ...(options.serverOptions?.environment ?? process.env),
+          },
+          options.testDelivery,
+        ),
       },
     );
     const client = await mcp.connect(
@@ -75,6 +84,8 @@ export async function createApplicationMcpHarness(
         name: "application-workflow-test",
         version: "1",
       },
+      options.schemaValidator,
+      options.testDelivery,
     );
     return { client, session, close };
   } catch (cause) {

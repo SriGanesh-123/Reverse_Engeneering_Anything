@@ -1,4 +1,5 @@
 /** Synthetic UnityFS (AssetBundle) builders for reader tests. */
+import { lz4LiteralBlock } from "./lz4LiteralBlock.js";
 
 export interface UnityFsMember {
   readonly path: string;
@@ -8,7 +9,7 @@ export interface UnityFsMember {
   readonly size?: number;
 }
 
-export interface UnityFsOptions {
+interface UnityFsOptions {
   readonly formatVersion?: number;
   readonly playerVersion?: string;
   readonly engineVersion?: string;
@@ -27,20 +28,6 @@ const cstring = (value: string): Buffer =>
   Buffer.concat([utf8(value), Buffer.alloc(1)]);
 
 const align16 = (value: number): number => (value + 15) & ~15;
-
-/** One final LZ4 literal sequence; separate sequences require intervening matches. */
-export const lz4LiteralBlock = (data: Buffer): Buffer => {
-  const head = [Math.min(data.length, 15) << 4];
-  if (data.length >= 15) {
-    let extra = data.length - 15;
-    while (extra >= 255) {
-      head.push(255);
-      extra -= 255;
-    }
-    head.push(extra);
-  }
-  return Buffer.concat([Buffer.from(head), data]);
-};
 
 const maybeCompress = (data: Buffer, compression: number): Buffer =>
   compression === 2 || compression === 3 ? lz4LiteralBlock(data) : data;
